@@ -130,6 +130,21 @@ impl<T> Ring<T> {
         None
     }
 
+    fn poll_with(&mut self, f: fn(&T) -> bool) -> Option<T> {
+        if let Root{prev, next} = self.buffer[0] {
+            let pos = match self.mode {
+                FIFO => prev,
+                LIFO => next,
+            };
+            if let Some(Box { item, .. }) = self.buffer.get_mut(pos) {
+                if f(&item) {
+                    return self.poll()
+                }
+            }
+        }
+        None
+    }
+
 }
 
 impl<T> From<Vec<T>> for Ring<T> {
@@ -232,5 +247,20 @@ mod tests {
         assert_eq!(ring.poll(), Some(4));
         assert_eq!(ring.poll(), Some(1));
         assert_eq!(ring.poll(), None);
+    }
+
+    #[test]
+    fn poll_with() {
+
+        let filter = |x: &i32| *x < 3;
+
+        let mut ring = Ring::new();
+        assert_eq!(ring.poll(), None);
+        ring.push(1);
+        ring.push(2);
+        ring.push(3);
+        assert_eq!(ring.poll_with(filter), Some(1));
+        assert_eq!(ring.poll_with(filter), Some(2));
+        assert_eq!(ring.poll_with(filter), None);
     }
 }
