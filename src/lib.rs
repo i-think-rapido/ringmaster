@@ -1,6 +1,5 @@
 use crate::RingBox::{Root, Box};
 
-#[derive(Debug)]
 enum RingBox<T> {
     Root{ prev: usize, next: usize },
     Box{ prev: usize, next: usize, item: T},
@@ -24,27 +23,80 @@ impl<T> Ring<T> {
     }
 
     fn push(&mut self, item: T) {
-        if let Root{prev, next} = self.buffer[0] {
-            match (prev, next) {
-                (0, 0) => {
-                    if let Some(Root{prev, next}) = self.buffer.get_mut(0) {
-                        *prev = 1;
-                        *next = 1;
-                    }
-                    self.buffer.push(Box{prev: 0, next: 0, item});
-                }
-                (_, last) => {
-                    let new = self.buffer.len();
-                    if let Some(Box{prev, ..}) = self.buffer.get_mut(last) {
-                        *prev = new;
+        match self.buffer.len() {
+            0 => unreachable!(),
+            1 => self.buffer = vec![Root{prev:1, next:1}, Box{prev:0, next:0, item}],
+            len => {
+                if let Root{next, ..} = self.buffer[0] {
+                    self.buffer.push(Box{prev:0, next, item});
+                    if let Some(Box{prev, ..}) = self.buffer.get_mut(next) {
+                        *prev = len;
                     }
                     if let Some(Root{next, ..}) = self.buffer.get_mut(0) {
-                        *next = new;
+                        *next = len;
                     }
-                    self.buffer.push(Box{prev: 0, next: last, item});
                 }
             }
         }
+    }
+
+    fn poll(&mut self) -> Option<T> {
+        match self.buffer.len() {
+            0 => unreachable!(),
+            1 => (),
+            2 => {
+                if let Box{item, ..} = self.buffer.remove(1) {
+                    self.buffer = vec![Root{prev:0, next:0}];
+                    return Some(item)
+                }
+            }
+            _ => {
+                if let Root { prev, .. } = self.buffer[0] {
+                    if let Box { item, prev: bprev, next: bnext } = self.buffer.swap_remove(prev) {
+                        match self.buffer.get_mut(bnext) {
+                            Some(Root { prev: p, .. }) => {
+                                *p = bprev;
+                            }
+                            Some(Box { prev: p, .. }) => {
+                                *p = bprev;
+                            }
+                            _ => unreachable!()
+                        }
+                        match self.buffer.get_mut(bprev) {
+                            Some(Root { next: n, .. }) => {
+                                *n = bnext;
+                            }
+                            Some(Box { next: n, .. }) => {
+                                *n = bnext;
+                            }
+                            _ => unreachable!()
+                        }
+                        if let Some(&Box { prev: lprev, next: lnext, .. }) = self.buffer.get(prev) {
+                            match self.buffer.get_mut(lprev) {
+                                Some(Root { next: n, .. }) => {
+                                    *n = prev;
+                                }
+                                Some(Box { next: n, .. }) => {
+                                    *n = prev;
+                                }
+                                _ => unreachable!()
+                            }
+                            match self.buffer.get_mut(lnext) {
+                                Some(Root { prev: p, .. }) => {
+                                    *p = prev;
+                                }
+                                Some(Box { prev: p, .. }) => {
+                                    *p = prev;
+                                }
+                                _ => unreachable!()
+                            }
+                        }
+                        return Some(item)
+                    }
+                }
+            }
+        }
+        None
     }
 
 }
@@ -98,5 +150,39 @@ mod tests {
             assert_eq!(next, 0);
             assert_eq!(item, 1);
         }
+    }
+
+    #[test]
+    fn poll() {
+        let mut ring = Ring::new();
+        assert_eq!(ring.poll(), None);
+        ring.push(1);
+        ring.push(2);
+        ring.push(3);
+        ring.push(4);
+        ring.push(5);
+        assert_eq!(ring.poll(), Some(1));
+        assert_eq!(ring.poll(), Some(2));
+        assert_eq!(ring.poll(), Some(3));
+        assert_eq!(ring.poll(), Some(4));
+        assert_eq!(ring.poll(), Some(5));
+        assert_eq!(ring.poll(), None);
+    }
+
+    #[test]
+    fn push_poll() {
+        let mut ring = Ring::new();
+        assert_eq!(ring.poll(), None);
+        ring.push(1);
+        ring.push(2);
+        ring.push(3);
+        assert_eq!(ring.poll(), Some(1));
+        assert_eq!(ring.poll(), Some(2));
+        ring.push(4);
+        ring.push(5);
+        assert_eq!(ring.poll(), Some(3));
+        assert_eq!(ring.poll(), Some(4));
+        assert_eq!(ring.poll(), Some(5));
+        assert_eq!(ring.poll(), None);
     }
 }
