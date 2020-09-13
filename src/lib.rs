@@ -1,20 +1,47 @@
 use crate::RingBox::{Root, Box};
+use crate::Mode::{FIFO, LIFO};
 
 enum RingBox<T> {
     Root{ prev: usize, next: usize },
     Box{ prev: usize, next: usize, item: T},
 }
 
+enum Mode {
+    FIFO,
+    LIFO,
+}
+impl Default for Mode {
+    fn default() -> Self {
+        FIFO
+    }
+}
+
 #[derive(Default)]
 struct Ring<T> {
     buffer: Vec<RingBox<T>>,
+    mode: Mode,
 }
 
 impl<T> Ring<T> {
 
-    fn new() -> Ring<T> {
-        Ring {
+    fn new() -> Self {
+        Self {
             buffer: vec![Root{prev: 0, next: 0}],
+            mode: FIFO,
+        }
+    }
+
+    fn as_fifo(self) -> Self {
+        Self {
+            buffer: self.buffer,
+            mode: FIFO,
+        }
+    }
+
+    fn as_lifo(self) -> Self {
+        Self {
+            buffer: self.buffer,
+            mode: LIFO,
         }
     }
 
@@ -51,8 +78,12 @@ impl<T> Ring<T> {
                 }
             }
             _ => {
-                if let Root { prev, .. } = self.buffer[0] {
-                    if let Box { item, prev: bprev, next: bnext } = self.buffer.swap_remove(prev) {
+                if let Root { prev, next } = self.buffer[0] {
+                    let pos = match self.mode {
+                        FIFO => prev,
+                        LIFO => next,
+                    };
+                    if let Box { item, prev: bprev, next: bnext } = self.buffer.swap_remove(pos) {
                         match self.buffer.get_mut(bnext) {
                             Some(Root { prev: p, .. }) => {
                                 *p = bprev;
@@ -71,22 +102,22 @@ impl<T> Ring<T> {
                             }
                             _ => unreachable!()
                         }
-                        if let Some(&Box { prev: lprev, next: lnext, .. }) = self.buffer.get(prev) {
+                        if let Some(&Box { prev: lprev, next: lnext, .. }) = self.buffer.get(pos) {
                             match self.buffer.get_mut(lprev) {
                                 Some(Root { next: n, .. }) => {
-                                    *n = prev;
+                                    *n = pos;
                                 }
                                 Some(Box { next: n, .. }) => {
-                                    *n = prev;
+                                    *n = pos;
                                 }
                                 _ => unreachable!()
                             }
                             match self.buffer.get_mut(lnext) {
                                 Some(Root { prev: p, .. }) => {
-                                    *p = prev;
+                                    *p = pos;
                                 }
                                 Some(Box { prev: p, .. }) => {
-                                    *p = prev;
+                                    *p = pos;
                                 }
                                 _ => unreachable!()
                             }
@@ -183,6 +214,23 @@ mod tests {
         assert_eq!(ring.poll(), Some(3));
         assert_eq!(ring.poll(), Some(4));
         assert_eq!(ring.poll(), Some(5));
+        assert_eq!(ring.poll(), None);
+    }
+
+    #[test]
+    fn lifo_push_poll() {
+        let mut ring = Ring::new().as_lifo();
+        assert_eq!(ring.poll(), None);
+        ring.push(1);
+        ring.push(2);
+        ring.push(3);
+        assert_eq!(ring.poll(), Some(3));
+        assert_eq!(ring.poll(), Some(2));
+        ring.push(4);
+        ring.push(5);
+        assert_eq!(ring.poll(), Some(5));
+        assert_eq!(ring.poll(), Some(4));
+        assert_eq!(ring.poll(), Some(1));
         assert_eq!(ring.poll(), None);
     }
 }
