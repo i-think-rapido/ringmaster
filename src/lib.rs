@@ -1,5 +1,6 @@
 use crate::RingBox::{Root, Box};
 use crate::Mode::{FIFO, LIFO};
+use tokio::sync::Mutex;
 
 enum RingBox<T> {
     Root{ prev: usize, next: usize },
@@ -18,7 +19,7 @@ impl Default for Mode {
 
 #[derive(Default)]
 struct Ring<T> {
-    buffer: Vec<RingBox<T>>,
+    buffer: Mutex<Vec<RingBox<T>>>,
     mode: Mode,
 }
 
@@ -26,7 +27,7 @@ impl<T> Ring<T> {
 
     fn new() -> Self {
         Self {
-            buffer: vec![Root{prev: 0, next: 0}],
+            buffer: Mutex::new(vec![Root{prev: 0, next: 0}]),
             mode: FIFO,
         }
     }
@@ -45,21 +46,34 @@ impl<T> Ring<T> {
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.buffer.len() == 1
+    async fn from(vec: Vec<T>) -> Self {
+        let ring = Ring::new();
+        for item in vec.into_iter() {
+            ring.push(item).await;
+        }
+        ring
     }
 
-    fn push(&mut self, item: T) {
-        match self.buffer.len() {
+    async fn is_empty(&self) -> bool {
+        self.buffer.lock().await.len() == 1
+    }
+
+    async fn push(&self, item: T) {
+        let mut vec = self.buffer.lock().await;
+        match vec.len() {
             0 => unreachable!(),
-            1 => self.buffer = vec![Root{prev:1, next:1}, Box{prev:0, next:0, item}],
+            1 => {
+                vec.clear();
+                vec.push(Root{prev:1, next:1});
+                vec.push(Box{prev:0, next:0, item});
+            },
             len => {
-                if let Root{next, ..} = self.buffer[0] {
-                    self.buffer.push(Box{prev:0, next, item});
-                    if let Some(Box{prev, ..}) = self.buffer.get_mut(next) {
+                if let Root{next, ..} = vec[0] {
+                    vec.push(Box{prev:0, next, item});
+                    if let Some(Box{prev, ..}) = vec.get_mut(next) {
                         *prev = len;
                     }
-                    if let Some(Root{next, ..}) = self.buffer.get_mut(0) {
+                    if let Some(Root{next, ..}) = vec.get_mut(0) {
                         *next = len;
                     }
                 }
@@ -67,24 +81,27 @@ impl<T> Ring<T> {
         }
     }
 
-    fn poll(&mut self) -> Option<T> {
-        match self.buffer.len() {
+    async fn poll(&self) -> Option<T> {
+        let mut vec = self.buffer.lock().await;
+        match vec.len() {
             0 => unreachable!(),
             1 => (),
             2 => {
-                if let Box{item, ..} = self.buffer.remove(1) {
-                    self.buffer = vec![Root{prev:0, next:0}];
+                if let Box{item, ..} = vec.remove(1) {
+                    let mut vec = vec;
+                    vec.clear();
+                    vec.push(Root{prev:0, next:0});
                     return Some(item)
                 }
             }
             _ => {
-                if let Root { prev, next } = self.buffer[0] {
+                if let Root { prev, next } = vec[0] {
                     let pos = match self.mode {
                         FIFO => prev,
                         LIFO => next,
                     };
-                    if let Box { item, prev: bprev, next: bnext } = self.buffer.swap_remove(pos) {
-                        match self.buffer.get_mut(bnext) {
+                    if let Box { item, prev: bprev, next: bnext } = vec.swap_remove(pos) {
+                        match vec.get_mut(bnext) {
                             Some(Root { prev: p, .. }) => {
                                 *p = bprev;
                             }
@@ -93,7 +110,7 @@ impl<T> Ring<T> {
                             }
                             _ => unreachable!()
                         }
-                        match self.buffer.get_mut(bprev) {
+                        match vec.get_mut(bprev) {
                             Some(Root { next: n, .. }) => {
                                 *n = bnext;
                             }
@@ -102,8 +119,8 @@ impl<T> Ring<T> {
                             }
                             _ => unreachable!()
                         }
-                        if let Some(&Box { prev: lprev, next: lnext, .. }) = self.buffer.get(pos) {
-                            match self.buffer.get_mut(lprev) {
+                        if let Some(&Box { prev: lprev, next: lnext, .. }) = vec.get(pos) {
+                            match vec.get_mut(lprev) {
                                 Some(Root { next: n, .. }) => {
                                     *n = pos;
                                 }
@@ -112,7 +129,7 @@ impl<T> Ring<T> {
                                 }
                                 _ => unreachable!()
                             }
-                            match self.buffer.get_mut(lnext) {
+                            match vec.get_mut(lnext) {
                                 Some(Root { prev: p, .. }) => {
                                     *p = pos;
                                 }
@@ -130,15 +147,18 @@ impl<T> Ring<T> {
         None
     }
 
-    fn poll_with(&mut self, f: fn(&T) -> bool) -> Option<T> {
-        if let Root{prev, next} = self.buffer[0] {
+    async fn poll_with(&self, f: fn(&T) -> bool) -> Option<T> {
+        let mut vec = self.buffer.lock().await;
+        if let Root{prev, next} = vec[0] {
+
             let pos = match self.mode {
                 FIFO => prev,
                 LIFO => next,
             };
-            if let Some(Box { item, .. }) = self.buffer.get_mut(pos) {
+            if let Some(Box { item, .. }) = vec.get_mut(pos) {
                 if f(&item) {
-                    return self.poll()
+                    drop(vec);
+                    return self.poll().await
                 }
             }
         }
@@ -147,120 +167,112 @@ impl<T> Ring<T> {
 
 }
 
-impl<T> From<Vec<T>> for Ring<T> {
-    fn from(vec: Vec<T>) -> Self {
-        let mut ring = Ring::new();
-        for item in vec.into_iter() {
-            ring.push(item);
-        }
-        ring
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
     use super::*;
 
-    #[test]
-    fn is_empty() {
+    #[tokio::test]
+    async fn is_empty() {
         let ring = Ring::<u8>::new();
-        assert!(ring.is_empty());
+        assert!(ring.is_empty().await);
     }
 
-    #[test]
-    fn push() {
-        let mut ring = Ring::new();
-        ring.push(1);
-        if let Root{prev, next} = ring.buffer[0] {
+    #[tokio::test]
+    async fn push() {
+        let ring = Ring::new();
+        ring.push(1).await;
+        let vec = ring.buffer.lock().await;
+        if let Root{prev, next} = vec[0] {
             assert_eq!(prev, 1);
             assert_eq!(next, 1);
         }
-        if let Some(&Box{prev, next, item}) = ring.buffer.last() {
+        if let Some(&Box{prev, next, item}) = vec.last() {
             assert_eq!(prev, 0);
             assert_eq!(next, 0);
             assert_eq!(item, 1);
         }
     }
 
-    #[test]
-    fn from() {
-        let ring = Ring::from(vec![1,3,4,6]);
-        if let Some(&Box{prev, next, item}) = ring.buffer.last() {
+    #[tokio::test]
+    async fn from() {
+        let ring = Ring::from(vec![1,3,4,6]).await;
+        let vec = ring.buffer.lock().await;
+        if let Some(&Box{prev, next, item}) = vec.last() {
             assert_eq!(prev, 0);
             assert_eq!(next, 3);
             assert_eq!(item, 6);
         }
-        if let Box{prev, next, item} = ring.buffer[1] {
+        if let Box{prev, next, item} = vec[1] {
             assert_eq!(prev, 2);
             assert_eq!(next, 0);
             assert_eq!(item, 1);
         }
     }
 
-    #[test]
-    fn poll() {
-        let mut ring = Ring::new();
-        assert_eq!(ring.poll(), None);
-        ring.push(1);
-        ring.push(2);
-        ring.push(3);
-        ring.push(4);
-        ring.push(5);
-        assert_eq!(ring.poll(), Some(1));
-        assert_eq!(ring.poll(), Some(2));
-        assert_eq!(ring.poll(), Some(3));
-        assert_eq!(ring.poll(), Some(4));
-        assert_eq!(ring.poll(), Some(5));
-        assert_eq!(ring.poll(), None);
+    #[tokio::test]
+    async fn poll() {
+        let ring = Ring::new();
+        assert_eq!(ring.poll().await, None);
+        ring.push(1).await;
+        ring.push(2).await;
+        ring.push(3).await;
+        ring.push(4).await;
+        ring.push(5).await;
+        assert_eq!(ring.poll().await, Some(1));
+        assert_eq!(ring.poll().await, Some(2));
+        assert_eq!(ring.poll().await, Some(3));
+        assert_eq!(ring.poll().await, Some(4));
+        assert_eq!(ring.poll().await, Some(5));
+        assert_eq!(ring.poll().await, None);
     }
 
-    #[test]
-    fn push_poll() {
-        let mut ring = Ring::new();
-        assert_eq!(ring.poll(), None);
-        ring.push(1);
-        ring.push(2);
-        ring.push(3);
-        assert_eq!(ring.poll(), Some(1));
-        assert_eq!(ring.poll(), Some(2));
-        ring.push(4);
-        ring.push(5);
-        assert_eq!(ring.poll(), Some(3));
-        assert_eq!(ring.poll(), Some(4));
-        assert_eq!(ring.poll(), Some(5));
-        assert_eq!(ring.poll(), None);
+    #[tokio::test]
+    async fn push_poll() {
+        let ring = Ring::new();
+        assert_eq!(ring.poll().await, None);
+        ring.push(1).await;
+        ring.push(2).await;
+        ring.push(3).await;
+        assert_eq!(ring.poll().await, Some(1));
+        assert_eq!(ring.poll().await, Some(2));
+        ring.push(4).await;
+        ring.push(5).await;
+        assert_eq!(ring.poll().await, Some(3));
+        assert_eq!(ring.poll().await, Some(4));
+        assert_eq!(ring.poll().await, Some(5));
+        assert_eq!(ring.poll().await, None);
     }
 
-    #[test]
-    fn lifo_push_poll() {
-        let mut ring = Ring::new().as_lifo();
-        assert_eq!(ring.poll(), None);
-        ring.push(1);
-        ring.push(2);
-        ring.push(3);
-        assert_eq!(ring.poll(), Some(3));
-        assert_eq!(ring.poll(), Some(2));
-        ring.push(4);
-        ring.push(5);
-        assert_eq!(ring.poll(), Some(5));
-        assert_eq!(ring.poll(), Some(4));
-        assert_eq!(ring.poll(), Some(1));
-        assert_eq!(ring.poll(), None);
+    #[tokio::test]
+    async fn lifo_push_poll() {
+        let ring = Ring::new().as_lifo();
+        assert_eq!(ring.poll().await, None);
+        ring.push(1).await;
+        ring.push(2).await;
+        ring.push(3).await;
+        assert_eq!(ring.poll().await, Some(3));
+        assert_eq!(ring.poll().await, Some(2));
+        ring.push(4).await;
+        ring.push(5).await;
+        assert_eq!(ring.poll().await, Some(5));
+        assert_eq!(ring.poll().await, Some(4));
+        assert_eq!(ring.poll().await, Some(1));
+        assert_eq!(ring.poll().await, None);
     }
 
-    #[test]
-    fn poll_with() {
+    #[tokio::test]
+    async fn poll_with() {
 
         let filter = |x: &i32| *x < 3;
 
-        let mut ring = Ring::new();
-        assert_eq!(ring.poll(), None);
-        ring.push(1);
-        ring.push(2);
-        ring.push(3);
-        assert_eq!(ring.poll_with(filter), Some(1));
-        assert_eq!(ring.poll_with(filter), Some(2));
-        assert_eq!(ring.poll_with(filter), None);
+        let ring = Ring::new();
+        assert_eq!(ring.poll().await, None);
+        ring.push(1).await;
+        ring.push(2).await;
+        ring.push(3).await;
+        assert_eq!(ring.poll_with(filter).await, Some(1));
+        assert_eq!(ring.poll_with(filter).await, Some(2));
+        assert_eq!(ring.poll_with(filter).await, None);
     }
 }
