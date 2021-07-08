@@ -1,8 +1,8 @@
-use crate::RingBox::{Root, Box};
+use crate::Slot::{Root, Box};
 use crate::Mode::{FIFO, LIFO};
 use tokio::sync::Mutex;
 
-enum RingBox<T> {
+enum Slot<T> {
     Root{ prev: usize, next: usize },
     Box{ prev: usize, next: usize, item: T},
 }
@@ -19,7 +19,7 @@ impl Default for Mode {
 
 #[derive(Default)]
 struct Ring<T> {
-    buffer: Mutex<Vec<RingBox<T>>>,
+    buffer: Mutex<Vec<Slot<T>>>,
     mode: Mode,
 }
 
