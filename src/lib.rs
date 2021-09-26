@@ -148,18 +148,34 @@ impl<T> Ring<T> {
     }
 
     async fn poll_with(&self, f: fn(&T) -> bool) -> Option<T> {
-        let mut vec = self.buffer.lock().await;
+        let vec = self.buffer.lock().await;
         if let Root{prev, next} = vec[0] {
 
             let pos = match self.mode {
                 FIFO => prev,
                 LIFO => next,
             };
-            if let Some(Box { item, .. }) = vec.get_mut(pos) {
+            if let Some(Box { item, .. }) = vec.get(pos) {
                 if f(&item) {
                     drop(vec);
                     return self.poll().await
                 }
+            }
+        }
+        None
+    }
+
+    async fn peek<R>(&self, f: fn(&T) -> Option<R>) -> Option<R> {
+        let vec = self.buffer.lock().await;
+        let v = &*vec;
+        if let Root{prev, next} = v[0] {
+
+            let pos = match self.mode {
+                FIFO => prev,
+                LIFO => next,
+            };
+            if let Some(Box { item, .. }) = v.get(pos) {
+                return f(item)
             }
         }
         None
@@ -274,5 +290,17 @@ mod tests {
         assert_eq!(ring.poll_with(filter).await, Some(1));
         assert_eq!(ring.poll_with(filter).await, Some(2));
         assert_eq!(ring.poll_with(filter).await, None);
+    }
+
+    fn lambda(x: &i32) -> Option<i32> { return Some(*x); }
+
+    #[tokio::test]
+    async fn peek() {
+        let ring = Ring::new();
+        assert_eq!(ring.peek(lambda).await, None);
+        ring.push(1).await;
+        assert_eq!(ring.peek(lambda).await, Some(1));
+        assert_eq!(ring.poll().await, Some(1));
+        assert_eq!(ring.peek(lambda).await, None);
     }
 }
