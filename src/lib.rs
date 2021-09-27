@@ -2,9 +2,9 @@ use crate::Slot::{Root, Box};
 use crate::Mode::{FIFO, LIFO};
 use tokio::sync::Mutex;
 
-enum Slot<T> {
+enum Slot {
     Root{ prev: usize, next: usize },
-    Box{ prev: usize, next: usize, item: T},
+    Box{ prev: usize, next: usize, buffer_idx: usize },
 }
 
 enum Mode {
@@ -19,7 +19,8 @@ impl Default for Mode {
 
 #[derive(Default)]
 struct Ring<T> {
-    buffer: Mutex<Vec<Slot<T>>>,
+    buffer: Mutex<Vec<T>>,
+    linked_list: Mutex<Vec<Slot>>,
     mode: Mode,
 }
 
@@ -27,7 +28,8 @@ impl<T> Ring<T> {
 
     fn new() -> Self {
         Self {
-            buffer: Mutex::new(vec![Root{prev: 0, next: 0}]),
+            buffer: Mutex::new(vec![]),
+            linked_list: Mutex::new(vec![Root{prev: 0, next: 0}]),
             mode: FIFO,
         }
     }
@@ -35,6 +37,7 @@ impl<T> Ring<T> {
     fn as_fifo(self) -> Self {
         Self {
             buffer: self.buffer,
+            linked_list: self.linked_list,
             mode: FIFO,
         }
     }
@@ -42,6 +45,7 @@ impl<T> Ring<T> {
     fn as_lifo(self) -> Self {
         Self {
             buffer: self.buffer,
+            linked_list: self.linked_list,
             mode: LIFO,
         }
     }
@@ -55,25 +59,30 @@ impl<T> Ring<T> {
     }
 
     async fn is_empty(&self) -> bool {
-        self.buffer.lock().await.len() == 1
+        self.linked_list.lock().await.len() == 1
     }
 
     async fn push(&self, item: T) {
         let mut vec = self.buffer.lock().await;
-        match vec.len() {
+        let mut list = self.linked_list.lock().await;
+        match list.len() {
             0 => unreachable!(),
             1 => {
-                vec.clear();
-                vec.push(Root{prev:1, next:1});
-                vec.push(Box{prev:0, next:0, item});
+                vec.push(item);
+
+                list.clear();
+                list.push(Root{prev:1, next:1});
+                list.push(Box{prev:0, next:0, buffer_idx: 0});
             },
             len => {
-                if let Root{next, ..} = vec[0] {
-                    vec.push(Box{prev:0, next, item});
-                    if let Some(Box{prev, ..}) = vec.get_mut(next) {
+                if let Root{next, ..} = list[0] {
+                    vec.push(item);
+
+                    list.push(Box{prev:0, next, buffer_idx: len - 1});
+                    if let Some(Box{prev, ..}) = list.get_mut(next) {
                         *prev = len;
                     }
-                    if let Some(Root{next, ..}) = vec.get_mut(0) {
+                    if let Some(Root{next, ..}) = list.get_mut(0) {
                         *next = len;
                     }
                 }
@@ -83,25 +92,26 @@ impl<T> Ring<T> {
 
     async fn poll(&self) -> Option<T> {
         let mut vec = self.buffer.lock().await;
-        match vec.len() {
+        let mut list = self.linked_list.lock().await;
+        match list.len() {
             0 => unreachable!(),
             1 => (),
             2 => {
-                if let Box{item, ..} = vec.remove(1) {
-                    let mut vec = vec;
-                    vec.clear();
-                    vec.push(Root{prev:0, next:0});
-                    return Some(item)
+                if let Box{buffer_idx, ..} = list.remove(1) {
+                    //let mut list = list;
+                    list.clear();
+                    list.push(Root{prev:0, next:0});
+                    return Some(vec.remove(buffer_idx))
                 }
             }
             _ => {
-                if let Root { prev, next } = vec[0] {
+                if let Root { prev, next } = list[0] {
                     let pos = match self.mode {
                         FIFO => prev,
                         LIFO => next,
                     };
-                    if let Box { item, prev: bprev, next: bnext } = vec.swap_remove(pos) {
-                        match vec.get_mut(bnext) {
+                    if let Box { buffer_idx, prev: bprev, next: bnext } = list.swap_remove(pos) {
+                        match list.get_mut(bnext) {
                             Some(Root { prev: p, .. }) => {
                                 *p = bprev;
                             }
@@ -110,7 +120,7 @@ impl<T> Ring<T> {
                             }
                             _ => unreachable!()
                         }
-                        match vec.get_mut(bprev) {
+                        match list.get_mut(bprev) {
                             Some(Root { next: n, .. }) => {
                                 *n = bnext;
                             }
@@ -119,8 +129,8 @@ impl<T> Ring<T> {
                             }
                             _ => unreachable!()
                         }
-                        if let Some(&Box { prev: lprev, next: lnext, .. }) = vec.get(pos) {
-                            match vec.get_mut(lprev) {
+                        if let Some(&Box { prev: lprev, next: lnext, .. }) = list.get(pos) {
+                            match list.get_mut(lprev) {
                                 Some(Root { next: n, .. }) => {
                                     *n = pos;
                                 }
@@ -129,7 +139,7 @@ impl<T> Ring<T> {
                                 }
                                 _ => unreachable!()
                             }
-                            match vec.get_mut(lnext) {
+                            match list.get_mut(lnext) {
                                 Some(Root { prev: p, .. }) => {
                                     *p = pos;
                                 }
@@ -139,7 +149,10 @@ impl<T> Ring<T> {
                                 _ => unreachable!()
                             }
                         }
-                        return Some(item)
+                        if let Some(Box{ buffer_idx: idx, .. }) = list.get_mut(pos) {
+                            *idx = buffer_idx;
+                        }
+                        return Some(vec.swap_remove(buffer_idx))
                     }
                 }
             }
@@ -149,16 +162,20 @@ impl<T> Ring<T> {
 
     async fn poll_with(&self, f: fn(&T) -> bool) -> Option<T> {
         let vec = self.buffer.lock().await;
-        if let Root{prev, next} = vec[0] {
+        let list = self.linked_list.lock().await;
+        if let Root{prev, next} = list[0] {
 
             let pos = match self.mode {
                 FIFO => prev,
                 LIFO => next,
             };
-            if let Some(Box { item, .. }) = vec.get(pos) {
-                if f(&item) {
-                    drop(vec);
-                    return self.poll().await
+            if let Some(Box { buffer_idx, .. }) = list.get(pos) {
+                if let Some(item) = vec.get(*buffer_idx) {
+                    if f(item) {
+                        drop(list);
+                        drop(vec);
+                        return self.poll().await
+                    }
                 }
             }
         }
@@ -167,15 +184,18 @@ impl<T> Ring<T> {
 
     async fn peek<R>(&self, f: fn(&T) -> Option<R>) -> Option<R> {
         let vec = self.buffer.lock().await;
-        let v = &*vec;
+        let list = self.linked_list.lock().await;
+        let v = &*list;
         if let Root{prev, next} = v[0] {
 
             let pos = match self.mode {
                 FIFO => prev,
                 LIFO => next,
             };
-            if let Some(Box { item, .. }) = v.get(pos) {
-                return f(item)
+            if let Some(Box { buffer_idx, .. }) = v.get(pos) {
+                if let Some(item) = vec.get(*buffer_idx) {
+                    return f(item)
+                }
             }
         }
         None
@@ -199,14 +219,15 @@ mod tests {
         let ring = Ring::new();
         ring.push(1).await;
         let vec = ring.buffer.lock().await;
-        if let Root{prev, next} = vec[0] {
+        let list = ring.linked_list.lock().await;
+        if let Root{prev, next} = list[0] {
             assert_eq!(prev, 1);
             assert_eq!(next, 1);
         }
-        if let Some(&Box{prev, next, item}) = vec.last() {
+        if let Some(&Box{prev, next, buffer_idx}) = list.last() {
             assert_eq!(prev, 0);
             assert_eq!(next, 0);
-            assert_eq!(item, 1);
+            assert_eq!(vec.get(buffer_idx), Some(&1));
         }
     }
 
@@ -214,15 +235,16 @@ mod tests {
     async fn from() {
         let ring = Ring::from(vec![1,3,4,6]).await;
         let vec = ring.buffer.lock().await;
-        if let Some(&Box{prev, next, item}) = vec.last() {
+        let list = ring.linked_list.lock().await;
+        if let Some(&Box{prev, next, buffer_idx}) = list.last() {
             assert_eq!(prev, 0);
             assert_eq!(next, 3);
-            assert_eq!(item, 6);
+            assert_eq!(vec.get(buffer_idx), Some(&6));
         }
-        if let Box{prev, next, item} = vec[1] {
+        if let Box{prev, next, buffer_idx} = list[1] {
             assert_eq!(prev, 2);
             assert_eq!(next, 0);
-            assert_eq!(item, 1);
+            assert_eq!(vec.get(buffer_idx), Some(&1));
         }
     }
 
