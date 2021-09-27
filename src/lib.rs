@@ -51,11 +51,22 @@ impl<T> Ring<T> {
     }
 
     async fn from(vec: Vec<T>) -> Self {
-        let ring = Ring::new();
-        for item in vec.into_iter() {
-            ring.push(item).await;
+
+        let mut count = 1;
+        let mut list = vec![Root{prev: count, next: vec.len() as usize }];
+        for i in 0..vec.len() {
+            list.push(Box{buffer_idx: count - 1, next: count - 1, prev: count + 1 });
+            count += 1;
         }
-        ring
+        if let Some(Box{prev, ..}) = list.get_mut(count - 1) {
+            *prev = 0;
+        }
+
+        Self {
+            buffer: Mutex::new(vec),
+            linked_list: Mutex::new(list),
+            mode: FIFO,
+        }
     }
 
     async fn is_empty(&self) -> bool {
@@ -201,6 +212,51 @@ impl<T> Ring<T> {
         None
     }
 
+    async fn fold_fast<R>(&self, start: R, f: fn(R, &T) -> R) -> R {
+        let mut acc = start;
+
+        let buffer = self.buffer.lock().await;
+        for item in buffer.iter() {
+            acc = f(acc, item);
+        }
+
+        acc
+    }
+
+    async fn fold<R>(&self, start: R, f: fn(R, &T) -> R) -> R {
+        let mut acc = start;
+
+        let vec = self.buffer.lock().await;
+        let list = self.linked_list.lock().await;
+        let mut current = &list[0];
+        let mut root_already_visited = false;
+        match current {
+            Root{prev, ..} => if *prev == 0 { return acc },
+            _ => unreachable!(),
+        }
+
+        while true {
+            match current {
+                Root{prev, ..} => {
+                    if root_already_visited {
+                        return acc
+                    }
+                    else {
+                        current = list.get(*prev).unwrap();
+                        root_already_visited = true
+                    }
+                },
+                Box{ buffer_idx, prev, ..} => {
+                    acc = f(acc, vec.get(*buffer_idx).unwrap());
+                    current = list.get(*prev).unwrap();
+                }
+                _ => unreachable!()
+            } 
+        }
+
+        acc
+    }
+
 }
 
 #[cfg(test)]
@@ -324,5 +380,29 @@ mod tests {
         assert_eq!(ring.peek(lambda).await, Some(1));
         assert_eq!(ring.poll().await, Some(1));
         assert_eq!(ring.peek(lambda).await, None);
+    }
+
+    #[tokio::test]
+    async fn fold_fast() {
+        let ring = Ring::from(vec![1,2,3,4,5]).await;
+        let result = ring.fold_fast(0, |acc, item| acc + item).await;
+        assert_eq!(result, 15);
+
+        assert_eq!(ring.poll().await, Some(1));
+        ring.push(6).await;
+        let result = ring.fold(0, |acc, item| acc + item).await;
+        assert_eq!(result, 20);
+    }
+
+    #[tokio::test]
+    async fn fold() {
+        let ring = Ring::from(vec![1,2,3,4,5]).await;
+        let result = ring.fold(0, |acc, item| acc + item).await;
+        assert_eq!(result, 15);
+
+        assert_eq!(ring.poll().await, Some(1));
+        ring.push(6).await;
+        let result = ring.fold(0, |acc, item| acc + item).await;
+        assert_eq!(result, 20);
     }
 }
