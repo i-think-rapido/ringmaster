@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::Slot::{Root, Box};
 use crate::Mode::{FIFO, LIFO};
 use tokio::sync::Mutex;
@@ -54,7 +55,7 @@ impl<T> Ring<T> {
 
         let mut count = 1;
         let mut list = vec![Root{prev: count, next: vec.len() as usize }];
-        for i in 0..vec.len() {
+        for _ in 0..vec.len() {
             list.push(Box{buffer_idx: count - 1, next: count - 1, prev: count + 1 });
             count += 1;
         }
@@ -239,7 +240,7 @@ impl<T> Ring<T> {
             _ => unreachable!(),
         }
 
-        while true {
+        loop {
             match current {
                 Root{prev, ..} => {
                     if root_already_visited {
@@ -254,11 +255,8 @@ impl<T> Ring<T> {
                     acc = f(acc, vec.get(*buffer_idx).unwrap());
                     current = list.get(*prev).unwrap();
                 }
-                _ => unreachable!()
             } 
         }
-
-        acc
     }
 
 }
