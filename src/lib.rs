@@ -73,6 +73,10 @@ impl<T> Ring<T> {
         self.linked_list.lock().await.len() == 1
     }
 
+    async fn len(&self) -> usize {
+        self.buffer.lock().await.len()
+    }
+
     async fn push(&self, item: T) {
         let mut vec = self.buffer.lock().await;
         let mut list = self.linked_list.lock().await;
@@ -268,6 +272,12 @@ mod tests {
     async fn is_empty() {
         let ring = Ring::<u8>::new();
         assert!(ring.is_empty().await);
+    }
+
+    #[tokio::test]
+    async fn length() {
+        let ring = Ring::from(vec![1,2,3,4,5]).await;
+        assert_eq!(ring.len().await, 5);
     }
 
     #[tokio::test]
