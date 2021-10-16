@@ -106,7 +106,7 @@ impl<T> Ring<T> {
         }
     }
 
-    async fn poll(&self) -> Option<T> {
+    async fn swap_remove(&self, pos: usize) -> Option<T> {
         let mut vec = self.buffer.lock().await;
         let mut list = self.linked_list.lock().await;
         match list.len() {
@@ -114,64 +114,70 @@ impl<T> Ring<T> {
             1 => (),
             2 => {
                 if let Box{buffer_idx, ..} = list.remove(1) {
-                    //let mut list = list;
                     list.clear();
                     list.push(Root{prev:0, next:0});
                     return Some(vec.remove(buffer_idx))
                 }
             }
             _ => {
-                if let Root { prev, next } = list[0] {
-                    let pos = match self.mode {
-                        FIFO => prev,
-                        LIFO => next,
-                    };
-                    if let Box { buffer_idx, prev: bprev, next: bnext } = list.swap_remove(pos) {
-                        match list.get_mut(bnext) {
-                            Some(Root { prev: p, .. }) => {
-                                *p = bprev;
-                            }
-                            Some(Box { prev: p, .. }) => {
-                                *p = bprev;
-                            }
-                            _ => unreachable!()
+                if let Box { buffer_idx, prev: bprev, next: bnext } = list.swap_remove(pos) {
+                    match list.get_mut(bnext) {
+                        Some(Root { prev: p, .. }) => {
+                            *p = bprev;
                         }
-                        match list.get_mut(bprev) {
+                        Some(Box { prev: p, .. }) => {
+                            *p = bprev;
+                        }
+                        _ => unreachable!()
+                    }
+                    match list.get_mut(bprev) {
+                        Some(Root { next: n, .. }) => {
+                            *n = bnext;
+                        }
+                        Some(Box { next: n, .. }) => {
+                            *n = bnext;
+                        }
+                        _ => unreachable!()
+                    }
+                    if let Some(&Box { prev: lprev, next: lnext, .. }) = list.get(pos) {
+                        match list.get_mut(lprev) {
                             Some(Root { next: n, .. }) => {
-                                *n = bnext;
+                                *n = pos;
                             }
                             Some(Box { next: n, .. }) => {
-                                *n = bnext;
+                                *n = pos;
                             }
                             _ => unreachable!()
                         }
-                        if let Some(&Box { prev: lprev, next: lnext, .. }) = list.get(pos) {
-                            match list.get_mut(lprev) {
-                                Some(Root { next: n, .. }) => {
-                                    *n = pos;
-                                }
-                                Some(Box { next: n, .. }) => {
-                                    *n = pos;
-                                }
-                                _ => unreachable!()
+                        match list.get_mut(lnext) {
+                            Some(Root { prev: p, .. }) => {
+                                *p = pos;
                             }
-                            match list.get_mut(lnext) {
-                                Some(Root { prev: p, .. }) => {
-                                    *p = pos;
-                                }
-                                Some(Box { prev: p, .. }) => {
-                                    *p = pos;
-                                }
-                                _ => unreachable!()
+                            Some(Box { prev: p, .. }) => {
+                                *p = pos;
                             }
+                            _ => unreachable!()
                         }
-                        if let Some(Box{ buffer_idx: idx, .. }) = list.get_mut(pos) {
-                            *idx = buffer_idx;
-                        }
-                        return Some(vec.swap_remove(buffer_idx))
                     }
+                    if let Some(Box{ buffer_idx: idx, .. }) = list.get_mut(pos) {
+                        *idx = buffer_idx;
+                    }
+                    return Some(vec.swap_remove(buffer_idx))
                 }
             }
+        }
+        None
+    }
+
+    async fn poll(&self) -> Option<T> {
+        let list = self.linked_list.lock().await;
+        if let Root { prev, next } = list[0] {
+            let pos = match self.mode {
+                FIFO => prev,
+                LIFO => next,
+            };
+            drop(list);
+            return self.swap_remove(pos).await;
         }
         None
     }
