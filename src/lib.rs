@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::Slot::{Root, Box};
 use crate::Mode::{FIFO, LIFO};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 
 enum Slot {
     Root{ prev: usize, next: usize },
@@ -106,10 +106,13 @@ impl<T> Ring<T> {
         }
     }
 
-    async fn swap_remove(&self, pos: usize) -> Option<T> {
-        let mut vec = self.buffer.lock().await;
-        let mut list = self.linked_list.lock().await;
-        match list.len() {
+    async fn swap_remove(&self, 
+        pos: usize, 
+        vec: &mut MutexGuard<'_, Vec<T>>,
+        list: &mut MutexGuard<'_, Vec<Slot>>
+    ) -> Option<T> {
+        let len = list.len();
+        match len {
             0 => unreachable!(),
             1 => (),
             2 => {
@@ -128,7 +131,7 @@ impl<T> Ring<T> {
                         Some(Box { prev: p, .. }) => {
                             *p = bprev;
                         }
-                        _ => unreachable!()
+                        _ => ()
                     }
                     match list.get_mut(bprev) {
                         Some(Root { next: n, .. }) => {
@@ -170,14 +173,14 @@ impl<T> Ring<T> {
     }
 
     async fn poll(&self) -> Option<T> {
-        let list = self.linked_list.lock().await;
+        let mut vec = self.buffer.lock().await;
+        let mut list = self.linked_list.lock().await;
         if let Root { prev, next } = list[0] {
             let pos = match self.mode {
                 FIFO => prev,
                 LIFO => next,
             };
-            drop(list);
-            return self.swap_remove(pos).await;
+            return self.swap_remove(pos, &mut vec, &mut list).await;
         }
         None
     }
@@ -262,6 +265,26 @@ impl<T> Ring<T> {
                     current = list.get(*prev).unwrap();
                 }
             } 
+        }
+    }
+
+    async fn purge(&self, f: fn(&T) -> bool) {
+    
+        let mut vec = self.buffer.lock().await;
+        let mut list = self.linked_list.lock().await;
+
+        let mut pos = 0;
+        while pos < vec.len() {
+            if let Some(item) = vec.get(pos) {
+                if !f(item) {
+                    let _ = self.swap_remove(pos + 1, &mut vec, &mut list).await;
+                    continue;
+                }
+            }
+            else {
+                break;
+            }
+            pos += 1;
         }
     }
 
@@ -418,5 +441,15 @@ mod tests {
         ring.push(6).await;
         let result = ring.fold(0, |acc, item| acc + item).await;
         assert_eq!(result, 20);
+    }
+
+    #[tokio::test]
+    async fn purge() {
+        let ring = Ring::from(vec![1,2,3,4,5]).await;
+        ring.purge(|x| { x % 2 == 0 }).await;
+        assert_eq!(ring.len().await, 2);
+        assert_eq!(ring.poll().await, Some(2));
+        assert_eq!(ring.poll().await, Some(4));
+        assert_eq!(ring.poll().await, None);
     }
 }
