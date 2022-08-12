@@ -6,7 +6,7 @@ use crate::Buffer;
 use crate::BufferType;
 use crate::BufferMode;
 use crate::Peek;
-use crate::RingTrait;
+use super::RingTrait;
 
 #[derive(Default)]
 pub(crate) struct RingStorageNaive<T: Clone> {
