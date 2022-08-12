@@ -1,8 +1,8 @@
-use std::borrow::Borrow;
-use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
+mod ring_storage;
+
 use std::sync::{Arc, RwLock};
 use std::convert::From;
+use crate::ring_storage::*;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum BufferType {
@@ -32,21 +32,24 @@ pub trait Peek {
     fn peek(&self) -> Option<Self::Item>;
 }
 
-#[derive(Default, Clone)]
+pub(crate) trait RingTrait<T, M> : Buffer<Item=T> + BufferMode<Mode=M> + Peek<Item=T> + 'static {}
+#[derive(Clone)]
 pub struct Ring<T: Clone> {
-    storage: Arc<RwLock<RingStorage<T>>>,
+    storage: Arc<RwLock<dyn RingTrait<T, BufferType>>>,
 }
-impl<T: Clone> From<Vec<T>> for Ring<T> {
+impl<T: Clone + 'static> Ring<T> {
+    pub fn new() -> Self {
+        Self::from(vec![])
+    }
+}
+impl<T: Clone + 'static> From<Vec<T>> for Ring<T> {
     fn from(vec: Vec<T>) -> Self {
         Self {
-            storage: Arc::new(RwLock::new(RingStorage {
-                buffer: RefCell::new(VecDeque::from(vec)),
-                mode: Cell::default(),
-            })),
+            storage: Arc::new(RwLock::new(RingStorageNaive::from(vec))),
         }
     }
 }
-impl<T: Clone> Buffer for Ring<T> {
+impl<T: Clone + 'static> Buffer for Ring<T> {
     type Item = T;
     fn push(&self, item: T) {
         self.storage.write().unwrap().push(item);
@@ -61,7 +64,7 @@ impl<T: Clone> Buffer for Ring<T> {
         self.storage.read().unwrap().is_empty()
     }
 }
-impl<T: Clone> BufferMode for Ring<T> {
+impl<T: Clone + 'static> BufferMode for Ring<T> {
     type Mode = BufferType;
     fn mode(&self) -> BufferType {
         self.storage.read().unwrap().mode()
@@ -70,52 +73,10 @@ impl<T: Clone> BufferMode for Ring<T> {
         self.storage.write().unwrap().set_mode(mode);
     }
 }
-impl<T: Clone> Peek for Ring<T> {
+impl<T: Clone + 'static> Peek for Ring<T> {
     type Item = T;
     fn peek(&self) -> Option<Self::Item> {
         self.storage.read().unwrap().peek()
-    }
-}
-
-#[derive(Default)]
-struct RingStorage<T: Clone> {
-    buffer: RefCell<VecDeque<T>>,
-    mode: Cell<BufferType>,
-}
-impl<T: Clone> Buffer for RingStorage<T> {
-    type Item = T;
-    fn push(&self, item: T) {
-        self.buffer.borrow_mut().push_back(item);
-    }
-    fn pop(&self) -> Option<T> {
-        match self.mode.get() {
-            BufferType::FIFO => self.buffer.borrow_mut().pop_front(),
-            BufferType::LIFO => self.buffer.borrow_mut().pop_back(),
-        }
-    }
-    fn len(&self) -> usize {
-        self.buffer.borrow().len()
-    }
-    fn is_empty(&self) -> bool {
-        self.buffer.borrow().is_empty()
-    }
-}
-impl<T: Clone> BufferMode for RingStorage<T> {
-    type Mode = BufferType;
-    fn mode(&self) -> BufferType {
-        self.mode.get()
-    }
-    fn set_mode(&self, mode: BufferType) {
-        self.mode.set(mode);
-    }
-}
-impl<T: Clone> Peek for RingStorage<T> {
-    type Item = T;
-    fn peek(&self) -> Option<Self::Item> {
-        match self.mode.borrow().get() {
-            BufferType::FIFO => self.buffer.borrow().front().cloned(),
-            BufferType::LIFO => self.buffer.borrow().back().cloned(),
-        }
     }
 }
 

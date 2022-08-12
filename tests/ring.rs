@@ -3,7 +3,7 @@ use ringmaster::*;
 
 #[test]
 fn is_empty() {
-    let ring = Ring::<u8>::default();
+    let ring = Ring::<u8>::new();
     assert!(ring.is_empty());
 }
 
@@ -15,7 +15,7 @@ fn len() {
 
 #[test]
 fn mode() {
-    let ring = Ring::<u8>::default();
+    let ring = Ring::<u8>::new();
     assert!(ring.mode() == BufferType::FIFO);
     ring.set_mode(BufferType::LIFO);
     assert!(ring.mode() == BufferType::LIFO);
@@ -25,7 +25,7 @@ fn mode() {
 
 #[test]
 fn peek() {
-    let ring = Ring::default();
+    let ring = Ring::new();
     assert_eq!(ring.peek(), None);
     ring.push(1);
     ring.push(2);
@@ -38,7 +38,7 @@ fn peek() {
 
 #[test]
 fn push_pop() {
-    let ring = Ring::default();
+    let ring = Ring::new();
     assert_eq!(ring.peek(), None);
     ring.push(1);
     ring.push(2);
@@ -55,7 +55,7 @@ fn push_pop() {
 
 #[test]
 fn lifo_push_pop() {
-    let ring = Ring::default();
+    let ring = Ring::new();
     ring.set_mode(BufferType::LIFO);
     assert_eq!(ring.peek(), None);
     ring.push(1);
@@ -74,4 +74,12 @@ fn lifo_push_pop() {
     assert_eq!(ring.pop(), Some(4));
     assert_eq!(ring.pop(), Some(1));
     assert_eq!(ring.pop(), None);
+}
+
+#[test]
+fn with_struct() {
+    let ring = Ring::new();
+    #[derive(Clone)]
+    struct A;
+    ring.push(A);
 }
