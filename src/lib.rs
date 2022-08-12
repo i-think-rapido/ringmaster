@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::convert::From;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -31,17 +31,18 @@ pub trait Peek {
     type Item;
     fn peek(&self) -> Option<Self::Item>;
 }
-#[derive(Default)]
+
+#[derive(Default, Clone)]
 pub struct Ring<T: Clone> {
-    storage: RwLock<RingStorage<T>>,
+    storage: Arc<RwLock<RingStorage<T>>>,
 }
 impl<T: Clone> From<Vec<T>> for Ring<T> {
     fn from(vec: Vec<T>) -> Self {
         Self {
-            storage: RwLock::new(RingStorage {
+            storage: Arc::new(RwLock::new(RingStorage {
                 buffer: RefCell::new(VecDeque::from(vec)),
                 mode: Cell::default(),
-            })
+            })),
         }
     }
 }
