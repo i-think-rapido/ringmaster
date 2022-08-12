@@ -1,15 +1,4 @@
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum BufferType {
-    FIFO,
-    LIFO,
-}
-impl Default for BufferType {
-    fn default() -> Self {
-        BufferType::FIFO
-    }
-}
-
 pub trait Buffer {
     type Item;
     fn push(&self, item: Self::Item);
@@ -27,3 +16,12 @@ pub trait Peek {
     fn peek(&self) -> Option<Self::Item>;
 }
 
+pub trait Capacity {
+    fn with_capacity(cap: usize) -> Self;
+    fn capacity(&self) -> usize;
+}
+
+pub trait Snapshot {
+    type Item;
+    fn snapshot(&self) -> Vec<Self::Item>;
+}

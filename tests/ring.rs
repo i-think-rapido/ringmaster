@@ -83,3 +83,12 @@ fn with_struct() {
     struct A;
     ring.push(A);
 }
+
+#[test]
+fn snapshot() {
+    let vec = vec![1, 3, 5];
+    let ring = RingBuffer::from(vec);
+    ring.push(7);
+    ring.push(9);
+    assert_eq!(ring.snapshot(), vec![1, 3, 5, 7, 9]);
+}

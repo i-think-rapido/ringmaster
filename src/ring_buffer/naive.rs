@@ -1,20 +1,20 @@
-
 use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
-use crate::Buffer;
+use crate::{Buffer, clone_slices, Snapshot};
 use crate::BufferType;
 use crate::BufferMode;
 use crate::Peek;
+use crate::utils::clone;
 use super::RingTrait;
 
 #[derive(Default)]
-pub(crate) struct RingStorageNaive<T: Clone> {
+pub(crate) struct RingStorageNaive<T> {
     buffer: RefCell<VecDeque<T>>,
     mode: Cell<BufferType>,
 }
-impl<T: Clone + 'static> RingTrait<T, BufferType> for RingStorageNaive<T> {}
-impl<T: Clone + 'static> From<Vec<T>> for RingStorageNaive<T> {
+impl<T> RingTrait<T, BufferType> for RingStorageNaive<T> {}
+impl<T> From<Vec<T>> for RingStorageNaive<T> {
     fn from(vec: Vec<T>) -> Self {
         Self {
             buffer: RefCell::new(VecDeque::from(vec)),
@@ -22,7 +22,7 @@ impl<T: Clone + 'static> From<Vec<T>> for RingStorageNaive<T> {
         }
     }
 }
-impl<T: Clone + 'static> Buffer for RingStorageNaive<T> {
+impl<T> Buffer for RingStorageNaive<T> {
     type Item = T;
     fn push(&self, item: T) {
         self.buffer.borrow_mut().push_back(item);
@@ -40,7 +40,7 @@ impl<T: Clone + 'static> Buffer for RingStorageNaive<T> {
         self.buffer.borrow().is_empty()
     }
 }
-impl<T: Clone + 'static> BufferMode for RingStorageNaive<T> {
+impl<T> BufferMode for RingStorageNaive<T> {
     type Mode = BufferType;
     fn mode(&self) -> BufferType {
         self.mode.get()
@@ -49,13 +49,23 @@ impl<T: Clone + 'static> BufferMode for RingStorageNaive<T> {
         self.mode.set(mode);
     }
 }
-impl<T: Clone + 'static> Peek for RingStorageNaive<T> {
+impl<T> Peek for RingStorageNaive<T> {
     type Item = T;
     fn peek(&self) -> Option<Self::Item> {
+        let clone = |r| unsafe { clone(r) };
         match self.mode.borrow().get() {
-            BufferType::FIFO => self.buffer.borrow().front().cloned(),
-            BufferType::LIFO => self.buffer.borrow().back().cloned(),
+            BufferType::FIFO => self.buffer.borrow().front().map(clone),
+            BufferType::LIFO => self.buffer.borrow().back().map(clone),
         }
     }
 }
 
+impl<T> Snapshot for RingStorageNaive<T> {
+    type Item = T;
+    fn snapshot(&self) -> Vec<Self::Item> {
+        let buf = self.buffer.borrow();
+        let (head, tail) = buf.as_slices();
+        let out: Vec<Self::Item> = clone_slices!(head, tail);
+        out
+    }
+}
