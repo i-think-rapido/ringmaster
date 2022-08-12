@@ -16,11 +16,11 @@ fn len() {
 #[test]
 fn mode() {
     let ring = Ring::<u8>::default();
-    assert!(ring.mode() == Mode::FIFO);
-    ring.set_mode(Mode::LIFO);
-    assert!(ring.mode() == Mode::LIFO);
-    ring.set_mode(Mode::FIFO);
-    assert!(ring.mode() == Mode::FIFO);
+    assert!(ring.mode() == BufferType::FIFO);
+    ring.set_mode(BufferType::LIFO);
+    assert!(ring.mode() == BufferType::LIFO);
+    ring.set_mode(BufferType::FIFO);
+    assert!(ring.mode() == BufferType::FIFO);
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn push_pop() {
 #[test]
 fn lifo_push_pop() {
     let ring = Ring::default();
-    ring.set_mode(Mode::LIFO);
+    ring.set_mode(BufferType::LIFO);
     assert_eq!(ring.peek(), None);
     ring.push(1);
     assert_eq!(ring.peek(), Some(1));

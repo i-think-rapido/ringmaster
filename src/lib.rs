@@ -5,13 +5,13 @@ use std::sync::RwLock;
 use std::convert::From;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-pub enum Mode {
+pub enum BufferType {
     FIFO,
     LIFO,
 }
-impl Default for Mode {
+impl Default for BufferType {
     fn default() -> Self {
-        Mode::FIFO
+        BufferType::FIFO
     }
 }
 
@@ -19,13 +19,18 @@ pub trait Buffer {
     type Item;
     fn push(&self, item: Self::Item);
     fn pop(&self) -> Option<Self::Item>;
-    fn mode(&self) -> Mode;
-    fn set_mode(&self, mode: Mode);
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
+}
+pub trait BufferMode {
+    type Mode;
+    fn mode(&self) -> Self::Mode;
+    fn set_mode(&self, mode: Self::Mode);
+}
+pub trait Peek {
+    type Item;
     fn peek(&self) -> Option<Self::Item>;
 }
-
 #[derive(Default)]
 pub struct Ring<T: Clone> {
     storage: RwLock<RingStorage<T>>,
@@ -48,19 +53,24 @@ impl<T: Clone> Buffer for Ring<T> {
     fn pop(&self) -> Option<T> {
         self.storage.write().unwrap().pop()
     }
-    fn mode(&self) -> Mode {
-        self.storage.read().unwrap().mode()
-    }
-    fn set_mode(&self, mode: Mode) {
-        self.storage.write().unwrap().set_mode(mode);
-    }
     fn len(&self) -> usize {
         self.storage.read().unwrap().len()
     }
     fn is_empty(&self) -> bool {
         self.storage.read().unwrap().is_empty()
     }
-
+}
+impl<T: Clone> BufferMode for Ring<T> {
+    type Mode = BufferType;
+    fn mode(&self) -> BufferType {
+        self.storage.read().unwrap().mode()
+    }
+    fn set_mode(&self, mode: BufferType) {
+        self.storage.write().unwrap().set_mode(mode);
+    }
+}
+impl<T: Clone> Peek for Ring<T> {
+    type Item = T;
     fn peek(&self) -> Option<Self::Item> {
         self.storage.read().unwrap().peek()
     }
@@ -69,7 +79,7 @@ impl<T: Clone> Buffer for Ring<T> {
 #[derive(Default)]
 struct RingStorage<T: Clone> {
     buffer: RefCell<VecDeque<T>>,
-    mode: Cell<Mode>,
+    mode: Cell<BufferType>,
 }
 impl<T: Clone> Buffer for RingStorage<T> {
     type Item = T;
@@ -78,15 +88,9 @@ impl<T: Clone> Buffer for RingStorage<T> {
     }
     fn pop(&self) -> Option<T> {
         match self.mode.get() {
-            Mode::FIFO => self.buffer.borrow_mut().pop_front(),
-            Mode::LIFO => self.buffer.borrow_mut().pop_back(),
+            BufferType::FIFO => self.buffer.borrow_mut().pop_front(),
+            BufferType::LIFO => self.buffer.borrow_mut().pop_back(),
         }
-    }
-    fn mode(&self) -> Mode {
-        self.mode.get()
-    }
-    fn set_mode(&self, mode: Mode) {
-        self.mode.set(mode);
     }
     fn len(&self) -> usize {
         self.buffer.borrow().len()
@@ -94,11 +98,22 @@ impl<T: Clone> Buffer for RingStorage<T> {
     fn is_empty(&self) -> bool {
         self.buffer.borrow().is_empty()
     }
-
+}
+impl<T: Clone> BufferMode for RingStorage<T> {
+    type Mode = BufferType;
+    fn mode(&self) -> BufferType {
+        self.mode.get()
+    }
+    fn set_mode(&self, mode: BufferType) {
+        self.mode.set(mode);
+    }
+}
+impl<T: Clone> Peek for RingStorage<T> {
+    type Item = T;
     fn peek(&self) -> Option<Self::Item> {
         match self.mode.borrow().get() {
-            Mode::FIFO => self.buffer.borrow().front().cloned(),
-            Mode::LIFO => self.buffer.borrow().back().cloned(),
+            BufferType::FIFO => self.buffer.borrow().front().cloned(),
+            BufferType::LIFO => self.buffer.borrow().back().cloned(),
         }
     }
 }
