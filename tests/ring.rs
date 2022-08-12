@@ -8,9 +8,19 @@ fn is_empty() {
 }
 
 #[test]
-fn length() {
+fn len() {
     let ring = Ring::from(vec![1,2,3,4,5]);
     assert_eq!(ring.len(), 5);
+}
+
+#[test]
+fn mode() {
+    let ring = Ring::<u8>::default();
+    assert!(ring.mode() == Mode::FIFO);
+    ring.set_mode(Mode::LIFO);
+    assert!(ring.mode() == Mode::LIFO);
+    ring.set_mode(Mode::FIFO);
+    assert!(ring.mode() == Mode::FIFO);
 }
 
 #[test]
@@ -46,7 +56,7 @@ fn push_pop() {
 #[test]
 fn lifo_push_pop() {
     let ring = Ring::default();
-    ring.mode(Mode::LIFO);
+    ring.set_mode(Mode::LIFO);
     assert_eq!(ring.peek(), None);
     ring.push(1);
     assert_eq!(ring.peek(), Some(1));

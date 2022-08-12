@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::RwLock;
 use std::convert::From;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Mode {
     FIFO,
     LIFO,
@@ -19,7 +19,8 @@ pub trait Buffer {
     type Item;
     fn push(&self, item: Self::Item);
     fn pop(&self) -> Option<Self::Item>;
-    fn mode(&self, mode: Mode);
+    fn mode(&self) -> Mode;
+    fn set_mode(&self, mode: Mode);
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
     fn peek(&self) -> Option<Self::Item>;
@@ -47,8 +48,11 @@ impl<T: Clone> Buffer for Ring<T> {
     fn pop(&self) -> Option<T> {
         self.storage.write().unwrap().pop()
     }
-    fn mode(&self, mode: Mode) {
-        self.storage.write().unwrap().mode(mode);
+    fn mode(&self) -> Mode {
+        self.storage.read().unwrap().mode()
+    }
+    fn set_mode(&self, mode: Mode) {
+        self.storage.write().unwrap().set_mode(mode);
     }
     fn len(&self) -> usize {
         self.storage.read().unwrap().len()
@@ -78,7 +82,10 @@ impl<T: Clone> Buffer for RingStorage<T> {
             Mode::LIFO => self.buffer.borrow_mut().pop_back(),
         }
     }
-    fn mode(&self, mode: Mode) {
+    fn mode(&self) -> Mode {
+        self.mode.get()
+    }
+    fn set_mode(&self, mode: Mode) {
         self.mode.set(mode);
     }
     fn len(&self) -> usize {
