@@ -2,7 +2,7 @@
 mod enums;
 mod traits;
 pub mod utils;
-mod ring_buffer;
+pub mod ring_buffer;
 mod timeseries;
 
 pub use crate::enums::*;

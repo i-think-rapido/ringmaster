@@ -1,13 +1,13 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use crate::clone_slices;
+use crate::unsafe_clone_slices;
 use crate::traits::*;
 
 #[derive(Default)]
 pub struct TimeseriesStorage<T> {
     buf: RefCell<VecDeque<T>>,
 }
-impl<T: Clone + 'static> From<Vec<T>> for TimeseriesStorage<T> {
+impl<T> From<Vec<T>> for TimeseriesStorage<T> {
     fn from(vec: Vec<T>) -> Self {
         Self {
             buf: RefCell::new(VecDeque::from(vec)),
@@ -55,12 +55,23 @@ impl<T> Capacity for TimeseriesStorage<T> {
     }
 }
 
-impl<T> Snapshot for TimeseriesStorage<T> {
+impl<T: Copy> Snapshot for TimeseriesStorage<T> {
     type Item = T;
     fn snapshot(&self) -> Vec<Self::Item> {
+        let mut out = vec![];
         let buf = self.buf.borrow();
         let (head, tail) = buf.as_slices();
-        let out: Vec<Self::Item> = clone_slices!(head, tail);
+        out.append(&mut head.to_vec());
+        out.append(&mut tail.to_vec());
+        out
+    }
+}
+impl<T: Copy> SnapshotRaw for TimeseriesStorage<T> {
+    type Item = T;
+    unsafe fn snapshot_raw(&self) -> Vec<Self::Item> {
+        let buf = self.buf.borrow();
+        let (head, tail) = buf.as_slices();
+        let out: Vec<Self::Item> = unsafe_clone_slices!(head, tail);
         out
     }
 }

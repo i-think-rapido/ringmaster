@@ -4,7 +4,7 @@ description = "async FIFO / LIFO with superpowers - 'A ringmaster or ringmistres
 license-file = "LICENSE"
 readme = "README.md"
 repository = "https://github.com/i-think-rapido/ringmaster"
-version = "0.10.0"
+version = "0.10.1"
 authors = ["Romeo Disca <romeo.disca@gmail.com>"]
 edition = "2021"
 

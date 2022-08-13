@@ -1,19 +1,16 @@
 use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
-use crate::{Buffer, clone_slices, Snapshot};
+use crate::{Buffer, unsafe_clone_slices, SnapshotRaw, Snapshot};
 use crate::BufferType;
 use crate::BufferMode;
 use crate::Peek;
-use crate::utils::clone;
-use super::RingTrait;
 
 #[derive(Default)]
-pub(crate) struct RingStorageNaive<T> {
+pub struct RingStorageNaive<T> {
     buffer: RefCell<VecDeque<T>>,
     mode: Cell<BufferType>,
 }
-impl<T> RingTrait<T, BufferType> for RingStorageNaive<T> {}
 impl<T> From<Vec<T>> for RingStorageNaive<T> {
     fn from(vec: Vec<T>) -> Self {
         Self {
@@ -49,23 +46,33 @@ impl<T> BufferMode for RingStorageNaive<T> {
         self.mode.set(mode);
     }
 }
-impl<T> Peek for RingStorageNaive<T> {
+impl<T: Clone> Peek for RingStorageNaive<T> {
     type Item = T;
     fn peek(&self) -> Option<Self::Item> {
-        let clone = |r| unsafe { clone(r) };
         match self.mode.borrow().get() {
-            BufferType::FIFO => self.buffer.borrow().front().map(clone),
-            BufferType::LIFO => self.buffer.borrow().back().map(clone),
+            BufferType::FIFO => self.buffer.borrow().front().cloned(),
+            BufferType::LIFO => self.buffer.borrow().back().cloned(),
         }
     }
 }
 
-impl<T> Snapshot for RingStorageNaive<T> {
+impl<T: Clone> Snapshot for RingStorageNaive<T> {
     type Item = T;
     fn snapshot(&self) -> Vec<Self::Item> {
+        let mut out = vec![];
         let buf = self.buffer.borrow();
         let (head, tail) = buf.as_slices();
-        let out: Vec<Self::Item> = clone_slices!(head, tail);
+        out.append(&mut head.to_vec());
+        out.append(&mut tail.to_vec());
+        out
+    }
+}
+impl<T: Copy> SnapshotRaw for RingStorageNaive<T> {
+    type Item = T;
+    unsafe fn snapshot_raw(&self) -> Vec<Self::Item> {
+        let buf = self.buffer.borrow();
+        let (head, tail) = buf.as_slices();
+        let out: Vec<Self::Item> = unsafe_clone_slices!(head, tail);
         out
     }
 }

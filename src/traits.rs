@@ -25,3 +25,7 @@ pub trait Snapshot {
     type Item;
     fn snapshot(&self) -> Vec<Self::Item>;
 }
+pub trait SnapshotRaw {
+    type Item;
+    unsafe fn snapshot_raw(&self) -> Vec<Self::Item>;
+}

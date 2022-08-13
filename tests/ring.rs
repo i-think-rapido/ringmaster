@@ -1,21 +1,22 @@
 
 use ringmaster::*;
+use ringmaster::ring_buffer::RingStorageNaive;
 
 #[test]
 fn is_empty() {
-    let ring = RingBuffer::<u8>::new();
+    let ring = RingBuffer::<RingStorageNaive<i32>>::default();
     assert!(ring.is_empty());
 }
 
 #[test]
 fn len() {
-    let ring = RingBuffer::from(vec![1, 2, 3, 4, 5]);
+    let ring = RingBuffer::<RingStorageNaive<i32>>::from(vec![1, 2, 3, 4, 5]);
     assert_eq!(ring.len(), 5);
 }
 
 #[test]
 fn mode() {
-    let ring = RingBuffer::<u8>::new();
+    let ring = RingBuffer::<RingStorageNaive<i32>>::default();
     assert!(ring.mode() == BufferType::FIFO);
     ring.set_mode(BufferType::LIFO);
     assert!(ring.mode() == BufferType::LIFO);
@@ -25,7 +26,7 @@ fn mode() {
 
 #[test]
 fn peek() {
-    let ring = RingBuffer::new();
+    let ring = RingBuffer::<RingStorageNaive<i32>>::default();
     assert_eq!(ring.peek(), None);
     ring.push(1);
     ring.push(2);
@@ -38,7 +39,7 @@ fn peek() {
 
 #[test]
 fn push_pop() {
-    let ring = RingBuffer::new();
+    let ring = RingBuffer::<RingStorageNaive<i32>>::default();
     assert_eq!(ring.peek(), None);
     ring.push(1);
     ring.push(2);
@@ -55,7 +56,7 @@ fn push_pop() {
 
 #[test]
 fn lifo_push_pop() {
-    let ring = RingBuffer::new();
+    let ring = RingBuffer::<RingStorageNaive<i32>>::default();
     ring.set_mode(BufferType::LIFO);
     assert_eq!(ring.peek(), None);
     ring.push(1);
@@ -78,16 +79,27 @@ fn lifo_push_pop() {
 
 #[test]
 fn with_struct() {
-    let ring = RingBuffer::new();
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct A;
+    let ring = RingBuffer::<RingStorageNaive<A>>::default();
     ring.push(A);
+}
+
+#[test]
+fn snapshot_raw() {
+    let vec = vec![1, 3, 5];
+    let ring = RingBuffer::<RingStorageNaive<i32>>::from(vec);
+    ring.push(7);
+    ring.push(9);
+    unsafe {
+        assert_eq!(ring.snapshot_raw(), vec![1, 3, 5, 7, 9]);
+    }
 }
 
 #[test]
 fn snapshot() {
     let vec = vec![1, 3, 5];
-    let ring = RingBuffer::from(vec);
+    let ring = RingBuffer::<RingStorageNaive<i32>>::from(vec);
     ring.push(7);
     ring.push(9);
     assert_eq!(ring.snapshot(), vec![1, 3, 5, 7, 9]);

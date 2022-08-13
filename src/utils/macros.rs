@@ -1,6 +1,6 @@
 
 #[macro_export]
-macro_rules! clone_slices(
+macro_rules! unsafe_clone_slices (
     () => {{ vec![] }};
     ($size:expr; $($e:expr),*) => {{
         let list = vec![$($e),*];
@@ -20,7 +20,7 @@ macro_rules! clone_slices(
 
         let capacity = sizes.iter().sum();
         let mut out = Vec::with_capacity(capacity);
-        unsafe {
+        {
             out.set_len(capacity);
 
             let mut dst_ptr = out.as_mut_ptr();
@@ -35,7 +35,7 @@ macro_rules! clone_slices(
         out
     }};
     ($($e:expr),*) => {{
-        clone_slices!(usize::MAX; $($e),*)
+        unsafe_clone_slices!(usize::MAX; $($e),*)
     }};
 );
 
