@@ -27,5 +27,6 @@ pub trait Snapshot {
 }
 pub trait SnapshotRaw {
     type Item;
-    unsafe fn snapshot_raw(&self) -> Vec<Self::Item>;
+    /// # Safety
+    unsafe fn snapshot_raw(&self) -> Vec<std::mem::MaybeUninit<Self::Item>>;
 }

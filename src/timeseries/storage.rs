@@ -68,10 +68,10 @@ impl<T: Copy> Snapshot for TimeseriesStorage<T> {
 }
 impl<T: Copy> SnapshotRaw for TimeseriesStorage<T> {
     type Item = T;
-    unsafe fn snapshot_raw(&self) -> Vec<Self::Item> {
+    unsafe fn snapshot_raw(&self) -> Vec<std::mem::MaybeUninit<Self::Item>> {
         let buf = self.buf.borrow();
         let (head, tail) = buf.as_slices();
-        let out: Vec<Self::Item> = unsafe_clone_slices!(head, tail);
+        let out: Vec<std::mem::MaybeUninit<Self::Item>> = unsafe_clone_slices!(head, tail);
         out
     }
 }

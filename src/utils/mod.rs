@@ -4,6 +4,7 @@ pub mod macros;
 use std::ptr::copy_nonoverlapping;
 use std::mem::MaybeUninit;
 #[inline]
+/// # Safety
 pub unsafe fn clone<T>(reference: &T) -> T {
     let mut out = MaybeUninit::<T>::uninit();
     let src = reference as *const _ as *const T;

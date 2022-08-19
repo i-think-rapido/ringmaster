@@ -59,7 +59,7 @@ impl<T, Impl: Snapshot<Item=T>> Snapshot for RingBuffer<Impl> {
 }
 impl<T: Copy, Impl: SnapshotRaw<Item=T>> SnapshotRaw for RingBuffer<Impl> {
     type Item = T;
-    unsafe fn snapshot_raw(&self) -> Vec<Self::Item> {
+    unsafe fn snapshot_raw(&self) -> Vec<std::mem::MaybeUninit<Self::Item>> {
         self.storage.read().unwrap().snapshot_raw()
     }
 }

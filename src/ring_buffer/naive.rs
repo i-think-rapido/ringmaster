@@ -69,10 +69,10 @@ impl<T: Clone> Snapshot for RingStorageNaive<T> {
 }
 impl<T: Copy> SnapshotRaw for RingStorageNaive<T> {
     type Item = T;
-    unsafe fn snapshot_raw(&self) -> Vec<Self::Item> {
+    unsafe fn snapshot_raw(&self) -> Vec<std::mem::MaybeUninit<Self::Item>> {
         let buf = self.buffer.borrow();
         let (head, tail) = buf.as_slices();
-        let out: Vec<Self::Item> = unsafe_clone_slices!(head, tail);
+        let out: Vec<std::mem::MaybeUninit<Self::Item>> = unsafe_clone_slices!(head, tail);
         out
     }
 }

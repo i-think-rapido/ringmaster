@@ -63,7 +63,7 @@ impl<T: Copy> Snapshot for Timeseries<T> {
 }
 impl<T: Copy> SnapshotRaw for Timeseries<T> {
     type Item = T;
-    unsafe fn snapshot_raw(&self) -> Vec<Self::Item> {
+    unsafe fn snapshot_raw(&self) -> Vec<std::mem::MaybeUninit<Self::Item>> {
         self.storage.read().unwrap().snapshot_raw()
     }
 }
