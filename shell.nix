@@ -1,11 +1,12 @@
 let
-    pkgs = import <nixos> {};
+    pkgs = import <nixpkgs> {};
 in
     # Configure the dependency of your shell
     # Add support for clang for bindgen in godot-rust
     pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
-        buildInputs = [
+        buildInputs = with pkgs; [
             # Rust related dependencies
-            pkgs.rustup
+            rustup
+            rust-analyzer
         ];
     }
